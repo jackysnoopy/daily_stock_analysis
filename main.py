@@ -640,6 +640,29 @@ def run_full_analysis(
         except Exception as e:
             logger.warning(f"自动回测失败（已忽略）: {e}")
 
+        # === Prediction Verification ===
+        try:
+            if getattr(config, 'verification_auto_enabled', True):
+                from src.services.verification_service import VerificationService
+                from datetime import date as date_type
+
+                logger.info("开始校验到期预测记录...")
+                service = VerificationService()
+                stats = service.verify_expired_predictions(
+                    verification_date=date_type.today(),
+                    limit=200,
+                )
+                logger.info(
+                    f"预测校验完成: total={stats.get('total')} "
+                    f"verified={stats.get('verified')} "
+                    f"skipped={stats.get('skipped')} "
+                    f"errors={stats.get('errors')}"
+                )
+        except ImportError as e:
+            logger.warning(f"预测校验模块未完成，跳过自动校验: {e}")
+        except Exception as e:
+            logger.warning(f"预测校验流程失败（已忽略）: {e}")
+
     except Exception as e:
         logger.exception(f"分析流程执行失败: {e}")
 

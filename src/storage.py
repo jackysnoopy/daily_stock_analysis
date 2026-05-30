@@ -343,6 +343,96 @@ class BacktestResult(Base):
     )
 
 
+class PredictionVerification(Base):
+    """
+    Prediction verification result model
+
+    Stores verification results for historical analysis predictions,
+    tracking trend accuracy, sniper point hit rates, sentiment correlation,
+    and simulated action returns.
+    """
+    __tablename__ = 'prediction_verifications'
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign key to AnalysisHistory
+    analysis_history_id = Column(
+        Integer,
+        ForeignKey('analysis_history.id'),
+        nullable=False,
+        index=True,
+    )
+
+    # Redundant fields for efficient filtering (same pattern as BacktestResult)
+    stock_code = Column(String(10), nullable=False, index=True)
+    analysis_date = Column(Date, index=True)
+
+    # Trend prediction verification
+    trend_predicted = Column(String(16))  # up/down/flat
+    trend_actual = Column(String(16))  # up/down/flat
+    trend_hit = Column(Boolean, nullable=True)
+
+    # Sniper points verification
+    sniper_points_json = Column(Text)  # JSON array of predicted points
+    sniper_hit_count = Column(Integer, default=0)
+    sniper_total_count = Column(Integer, default=0)
+    sniper_hit_rate = Column(Float, nullable=True)
+
+    # Sentiment score verification
+    sentiment_predicted = Column(Integer)  # 0-100
+    sentiment_actual = Column(Integer)  # mapped from actual price change
+    sentiment_correlation = Column(Float, nullable=True)
+
+    # Action advice verification
+    action_predicted = Column(String(16))  # buy/sell/hold
+    action_return = Column(Float)  # simulated return %
+    action_hit = Column(Boolean, nullable=True)  # profitable?
+
+    # Metadata
+    verification_date = Column(Date, nullable=False, index=True)
+    holding_period = Column(Integer, nullable=False, default=5)  # actual holding days
+
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    __table_args__ = (
+        # Ensure one verification per analysis history
+        UniqueConstraint(
+            'analysis_history_id',
+            name='uix_prediction_verification_analysis_history',
+        ),
+        # Efficient query by stock + date range
+        Index('ix_prediction_verification_code_date', 'stock_code', 'analysis_date'),
+        # Efficient query by verification date
+        Index('ix_prediction_verification_verification_date', 'verification_date'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'analysis_history_id': self.analysis_history_id,
+            'stock_code': self.stock_code,
+            'analysis_date': self.analysis_date.isoformat() if self.analysis_date else None,
+            'trend_predicted': self.trend_predicted,
+            'trend_actual': self.trend_actual,
+            'trend_hit': self.trend_hit,
+            'sniper_points_json': self.sniper_points_json,
+            'sniper_hit_count': self.sniper_hit_count,
+            'sniper_total_count': self.sniper_total_count,
+            'sniper_hit_rate': self.sniper_hit_rate,
+            'sentiment_predicted': self.sentiment_predicted,
+            'sentiment_actual': self.sentiment_actual,
+            'sentiment_correlation': self.sentiment_correlation,
+            'action_predicted': self.action_predicted,
+            'action_return': self.action_return,
+            'action_hit': self.action_hit,
+            'verification_date': self.verification_date.isoformat() if self.verification_date else None,
+            'holding_period': self.holding_period,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class BacktestSummary(Base):
     """回测汇总指标（按股票或全局）。"""
 

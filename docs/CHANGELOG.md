@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [新功能] 问股新增默认关闭的可见对话上下文压缩，支持 Web 开关、Agent 高级 preset、滚动摘要和最近轮次原文保护，降低长会话 token 消耗。
 - [改进] P2-min：LLM Prompt 注入市场阶段上下文。
 - [修复] 问股 single-agent 新增 provider-aware trace 分轨，跨轮保留 DeepSeek V4 thinking + tool-call 的 `reasoning_content` 与工具协议材料。
+- [新功能] 新增分析准确率跟踪功能，支持趋势预测、狙击点位、情绪评分、操作建议的多维度校验与统计。
+- [改进] 定时任务流程新增到期预测自动校验步骤，可在 `.env` 中配置 `VERIFICATION_AUTO_ENABLED` 控制开关。
+- [改进] 新增 `VERIFICATION_THRESHOLD_TREND` / `VERIFICATION_SNIPER_TOLERANCE` / `VERIFICATION_DEFAULT_HOLDING` 配置项，支持自定义校验参数。
 
 ## [3.18.0] - 2026-05-21
 

@@ -858,7 +858,13 @@ class Config:
     backtest_min_age_days: int = 14
     backtest_engine_version: str = "v1"
     backtest_neutral_band_pct: float = 2.0
-    
+
+    # === 预测校验配置 ===
+    verification_threshold_trend: int = 2  # 趋势判断涨跌阈值 (%)
+    verification_sniper_tolerance: int = 1  # 狙击点位命中容差 (%)
+    verification_default_holding: int = 5   # 默认持有天数
+    verification_auto_enabled: bool = True  # 是否启用自动校验
+
     # === 日志配置 ===
     log_dir: str = "./logs"  # 日志文件目录
     log_level: str = "INFO"  # 日志级别
@@ -1651,6 +1657,29 @@ class Config:
                 field_name='BACKTEST_NEUTRAL_BAND_PCT',
                 minimum=0.0,
             ),
+            # 预测校验配置
+            verification_threshold_trend=parse_env_int(
+                os.getenv('VERIFICATION_THRESHOLD_TREND'),
+                2,
+                field_name='VERIFICATION_THRESHOLD_TREND',
+                minimum=1,
+                maximum=10,
+            ),
+            verification_sniper_tolerance=parse_env_int(
+                os.getenv('VERIFICATION_SNIPER_TOLERANCE'),
+                1,
+                field_name='VERIFICATION_SNIPER_TOLERANCE',
+                minimum=0,
+                maximum=5,
+            ),
+            verification_default_holding=parse_env_int(
+                os.getenv('VERIFICATION_DEFAULT_HOLDING'),
+                5,
+                field_name='VERIFICATION_DEFAULT_HOLDING',
+                minimum=1,
+                maximum=30,
+            ),
+            verification_auto_enabled=os.getenv('VERIFICATION_AUTO_ENABLED', 'true').lower() == 'true',
             log_dir=os.getenv('LOG_DIR', './logs'),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),
             max_workers=parse_env_int(os.getenv('MAX_WORKERS'), 3, field_name='MAX_WORKERS', minimum=1),
