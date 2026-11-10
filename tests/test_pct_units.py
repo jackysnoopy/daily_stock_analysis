@@ -44,5 +44,20 @@ class TestPctChgUnit(unittest.TestCase):
         self.assertEqual(int(r["consec_max"]), 1, r.to_dict())
 
 
+class TestTurnUnit(unittest.TestCase):
+    """turn 契约 = 百分数（0.2 = 0.2%），与 build_hist_mv 公式 amount/(turn/100) 对齐"""
+
+    @unittest.skipUnless(BARS.exists(), "bars.db 不存在")
+    def test_turn_percent_scale(self):
+        con = sqlite3.connect(f"file:{BARS}?mode=ro&immutable=1", uri=True)
+        row = con.execute(
+            "SELECT turn FROM daily_bar WHERE code='600519.SH' AND date='2026-11-09' "
+            "AND adjust='qfq'").fetchone()
+        con.close()
+        self.assertIsNotNone(row)
+        # 茅台日换手真实约 0.2% → 百分数刻度应 >=0.05（修复前 0.002 → 红）
+        self.assertGreaterEqual(row[0], 0.05, f"turn={row[0]} 仍是小数刻度")
+
+
 if __name__ == "__main__":
     unittest.main()
