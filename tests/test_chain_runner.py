@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -14,9 +15,12 @@ import chain_runner as cr
 
 
 def _mk_bars(db: Path, latest: str):
+    # qfq 行 = 基线日；none 行 = 基线日+1（模拟 fill_timing 盘中快照更晚）
     con = sqlite3.connect(str(db))
-    con.execute("CREATE TABLE daily_bar (code TEXT, date TEXT)")
-    con.execute("INSERT INTO daily_bar VALUES ('000001.SZ', ?)", (latest,))
+    con.execute("CREATE TABLE daily_bar (code TEXT, date TEXT, adjust TEXT)")
+    con.execute("INSERT INTO daily_bar VALUES ('000001.SZ', ?, 'qfq')", (latest,))
+    next_day = (date.fromisoformat(latest) + timedelta(days=1)).isoformat()
+    con.execute("INSERT INTO daily_bar VALUES ('000001.SZ', ?, 'none')", (next_day,))
     con.commit()
     con.close()
 
@@ -51,6 +55,21 @@ class TestFreshness(unittest.TestCase):
             d = Path(d)
             _mk_bars(d / "bars.db", "2026-11-09")
             (d / "logs").mkdir()
+            with mock.patch.object(cr, "BARS_DB", d / "bars.db"), \
+                 mock.patch.object(cr, "LOGS", d / "logs"):
+                self.assertEqual(cr.check(), 2)
+
+    def test_check_ignores_newer_none_snapshot(self):
+        # _mk_bars 的 none 行比 qfq 基线日晚 1 天：bars_latest 只看 qfq，
+        # opp=基线日 → 0 新鲜；opp 更早 → 2
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            _mk_bars(d / "bars.db", "2026-11-09")
+            _mk_opp(d / "logs", "2026-11-09")
+            with mock.patch.object(cr, "BARS_DB", d / "bars.db"), \
+                 mock.patch.object(cr, "LOGS", d / "logs"):
+                self.assertEqual(cr.check(), 0)
+            _mk_opp(d / "logs", "2026-11-08")
             with mock.patch.object(cr, "BARS_DB", d / "bars.db"), \
                  mock.patch.object(cr, "LOGS", d / "logs"):
                 self.assertEqual(cr.check(), 2)
