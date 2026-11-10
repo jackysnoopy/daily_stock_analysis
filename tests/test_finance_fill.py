@@ -37,6 +37,11 @@ class TestSchema(unittest.TestCase):
             ff.init_quality_db(p)
             self.assertEqual(_cols(p, "quality"), UP_Q_COLS)
 
+    def test_module_cols_match_ddl_order(self):
+        # 锁定 ff.FIN_COLS/Q_COLS 与 DDL 列序一致（Task 4 位置式 INSERT 依赖）
+        self.assertEqual(ff.FIN_COLS, UP_FIN_COLS)
+        self.assertEqual(ff.Q_COLS, UP_Q_COLS)
+
 
 def _canned_tables():
     """4 期（含去年同期）三表原始数据，单位：元。覆盖全部必需科目。"""

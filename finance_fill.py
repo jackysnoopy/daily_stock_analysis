@@ -88,7 +88,7 @@ def _yi(v):
 def build_rows(code: str, lrb: dict, fzb: dict, llb: dict, period_keys=None):
     """新浪三表原始行 → (finance_rows, quality_rows)。
     lrb/fzb/llb: {period_key('20260930'): {科目: 值}}；period_keys 显式指定顺序（测试用）。"""
-    keys = period_keys or sorted(set(lrb) & set(fzb) & set(llb), reverse=True)
+    keys = period_keys if period_keys is not None else sorted(set(lrb) & set(fzb) & set(llb), reverse=True)
     per_sorted = [p for p in sorted(keys) if p in lrb and p in fzb and p in llb]
     if not per_sorted:
         return [], []
