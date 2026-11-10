@@ -96,5 +96,43 @@ class TestBuildRows(unittest.TestCase):
         self.assertEqual(qual, [])
 
 
+class TestSinaParse(unittest.TestCase):
+    def test_parse_report_list(self):
+        fake = {"result": {"data": {"report_list": {
+            "20260930": {"data": [
+                {"item_title": "净利润", "item_value": "66717143218.04"},
+                {"item_title": "营业总收入", "item_value": "133283652508.95"},
+            ]},
+            "bad": {"data": []},
+        }}}}
+        out = ff.parse_report_list(fake)
+        self.assertIn("20260930", out)          # 保留 8 位原始键
+        self.assertNotIn("bad", out)
+        self.assertAlmostEqual(out["20260930"]["净利润"], 66717143218.04)
+        self.assertIsNone(out["20260930"].get("不存在的科目"))
+
+    def test_parse_tolerates_garbage(self):
+        self.assertEqual(ff.parse_report_list({}), {})
+        self.assertEqual(ff.parse_report_list(None), {})
+
+    def test_sina_prefix(self):
+        self.assertEqual(ff.sina_prefix("600519"), "sh")
+        self.assertEqual(ff.sina_prefix("000001"), "sz")
+        self.assertEqual(ff.sina_prefix("832000"), "bj")
+        # 全格式代码必须先剥交易所后缀——新浪 paperCode 只认 6 位（sh600519.SH 返回空）
+        self.assertEqual(ff.sina_prefix("600519.SH"), "sh")
+        self.assertEqual(ff.sina_prefix("000001.SZ"), "sz")
+
+    def test_build_rows_accepts_normalized_keys(self):
+        # build_rows 内部把 '2026-09-30' 归一成 '20260930'，两种输入结果一致
+        periods, lrb, fzb, llb = _canned_tables()
+        lrb2 = {f"{k[:4]}-{k[4:6]}-{k[6:8]}": v for k, v in lrb.items()}
+        fzb2 = {f"{k[:4]}-{k[4:6]}-{k[6:8]}": v for k, v in fzb.items()}
+        llb2 = {f"{k[:4]}-{k[4:6]}-{k[6:8]}": v for k, v in llb.items()}
+        a, _ = ff.build_rows("000001.SZ", lrb, fzb, llb, period_keys=periods)
+        b, _ = ff.build_rows("000001.SZ", lrb2, fzb2, llb2)
+        self.assertEqual([r[:2] for r in a], [r[:2] for r in b])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -88,6 +88,14 @@ def _yi(v):
 def build_rows(code: str, lrb: dict, fzb: dict, llb: dict, period_keys=None):
     """新浪三表原始行 → (finance_rows, quality_rows)。
     lrb/fzb/llb: {period_key('20260930'): {科目: 值}}；period_keys 显式指定顺序（测试用）。"""
+    def _norm(k):
+        s = str(k)
+        return s.replace("-", "") if "-" in s else s
+    lrb = {_norm(k): v for k, v in lrb.items()}
+    fzb = {_norm(k): v for k, v in fzb.items()}
+    llb = {_norm(k): v for k, v in llb.items()}
+    if period_keys is not None:
+        period_keys = [_norm(k) for k in period_keys]
     keys = period_keys if period_keys is not None else sorted(set(lrb) & set(fzb) & set(llb), reverse=True)
     per_sorted = [p for p in sorted(keys) if p in lrb and p in fzb and p in llb]
     if not per_sorted:
@@ -151,3 +159,178 @@ def build_rows(code: str, lrb: dict, fzb: dict, llb: dict, period_keys=None):
             None,
         ))
     return fin_rows, q_rows
+
+
+def sina_prefix(code6: str) -> str:
+    c = str(code6).split(".")[0]                 # 剥交易所后缀：600519.SH → 600519
+    if c.startswith(("6", "9")):
+        return "sh"
+    if c.startswith("8"):
+        return "bj"
+    return "sz"
+
+
+def parse_report_list(payload) -> dict:
+    """新浪响应 → {'20260930': {科目: float}}；坏数据安全返回 {}"""
+    out = {}
+    try:
+        rl = payload["result"]["data"]["report_list"] or {}
+    except (KeyError, TypeError, AttributeError):
+        return out
+    for per, obj in rl.items():
+        per = str(per)
+        if len(per) != 8 or not per.isdigit():
+            continue
+        items = {}
+        for it in (obj.get("data") or []):
+            t = it.get("item_title")
+            if not t:
+                continue
+            raw = it.get("item_value")
+            try:
+                items[t] = float(raw) if raw not in (None, "") else None
+            except (TypeError, ValueError):
+                items[t] = None
+        out[per] = items
+    return out
+
+
+def sina_report(code6: str, src: str, num: int = NUM_PERIODS) -> dict:
+    """新浪三表之一 → {8位期次键: {科目: 值}}；任何失败返回 {}（不抛）"""
+    import requests
+    if not hasattr(_local, "session"):
+        _local.session = requests.Session()
+        _local.session.headers.update({"User-Agent": UA})
+        _local.last = 0.0
+    wait = MIN_INTERVAL - (time.time() - _local.last)
+    if wait > 0:
+        time.sleep(wait + random.uniform(0.05, 0.25))
+    url = ("https://quotes.sina.cn/cn/api/openapi.php/"
+           "CompanyFinanceService.getFinanceReport2022")
+    try:
+        r = _local.session.get(url, params={
+            "paperCode": f"{sina_prefix(code6)}{str(code6).split('.')[0]}",  # 必须 6 位：sh600519
+            "source": src, "type": "0", "page": "1", "num": str(num),
+        }, timeout=15)
+        return parse_report_list(r.json())
+    except Exception:
+        return {}
+    finally:
+        _local.last = time.time()
+
+
+def load_codes() -> list:
+    con = sqlite3.connect(f"file:{BASIC_DB}?mode=ro&immutable=1", uri=True)
+    if _has_status_col(con):
+        rows = [r[0] for r in con.execute(
+            "SELECT code FROM stock_basic WHERE status != '0' OR status IS NULL").fetchall()]
+    else:
+        rows = [r[0] for r in con.execute("SELECT code FROM stock_basic").fetchall()]
+    con.close()
+    return rows
+
+
+def _has_status_col(con) -> bool:
+    cols = [r[1] for r in con.execute("PRAGMA table_info(stock_basic)")]
+    return "status" in cols
+
+
+def _thread_con(db_path):
+    key = f"con_{db_path}"
+    con = getattr(_local, key, None)
+    if con is None:
+        con = sqlite3.connect(str(db_path))
+        setattr(_local, key, con)
+    return con
+
+
+def fill_one(code: str):
+    """单只：拉三表 → 入库；返回 (code, n_fin, err)"""
+    lrb = sina_report(code, "lrb")
+    if not lrb:
+        return code, 0, "sina_empty"
+    fzb = sina_report(code, "fzb")
+    llb = sina_report(code, "llb")
+    fin_rows, q_rows = build_rows(code, lrb, fzb, llb)
+    if not fin_rows:
+        return code, 0, "parse_empty"
+    fin_ph = ",".join("?" * len(FIN_COLS))
+    q_ph = ",".join("?" * len(Q_COLS))
+    _thread_con(FIN_DB).executemany(
+        f"INSERT OR REPLACE INTO finance_report VALUES ({fin_ph})", fin_rows)
+    _thread_con(FIN_DB).commit()
+    _thread_con(QD_DB).executemany(
+        f"INSERT OR REPLACE INTO quality VALUES ({q_ph})", q_rows)
+    _thread_con(QD_DB).commit()
+    return code, len(fin_rows), None
+
+
+def status() -> None:
+    for db, table in ((FIN_DB, "finance_report"), (QD_DB, "quality")):
+        if not Path(db).exists():
+            print(f"{Path(db).name}:: {table} = 库不存在")
+            continue
+        con = sqlite3.connect(str(db))
+        n = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        latest = con.execute(
+            f"SELECT period, COUNT(*) FROM {table} GROUP BY period "
+            f"ORDER BY period DESC LIMIT 1").fetchone()
+        codes = con.execute(f"SELECT COUNT(DISTINCT code) FROM {table}").fetchone()[0]
+        con.close()
+        print(f"{Path(db).name}:: {table} = {n} 行 / {codes} 只；"
+              f"最新期 {latest[0] if latest else '-'} {latest[1] if latest else 0} 行")
+
+
+def run(codes=None, start=0) -> int:
+    init_finance_db()
+    init_quality_db()
+    all_codes = codes or load_codes()
+    todo = all_codes[start:]
+    print(f"待处理 {len(todo)} 只（start={start}），{N_WORKERS} 线程，"
+          f"单线程间隔 {MIN_INTERVAL}s", flush=True)
+    t0 = time.time()
+    n_ok = n_fail = 0
+    failed = []
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=N_WORKERS) as ex:
+        futs = {ex.submit(fill_one, c): c for c in todo}
+        for i, fu in enumerate(as_completed(futs), 1):
+            code, n, err = fu.result()
+            if err:
+                n_fail += 1
+                failed.append(f"{code}\t{err}")
+            else:
+                n_ok += 1
+            if i % 100 == 0:
+                el = time.time() - t0
+                print(f"  {i}/{len(todo)} ok={n_ok} fail={n_fail} {el:.0f}s "
+                      f"eta={el / i * (len(todo) - i):.0f}s", flush=True)
+    if failed:
+        PROGRESS.parent.mkdir(parents=True, exist_ok=True)
+        PROGRESS.write_text("\n".join(failed), encoding="utf-8")
+    print(f"完成：ok={n_ok} fail={n_fail} 用时 {time.time() - t0:.0f}s；"
+          f"失败清单 {PROGRESS}", flush=True)
+    status()
+    return 0 if n_ok > 0 else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="新浪三表 → 上游 finance/quality 库")
+    ap.add_argument("--init", action="store_true", help="全量补数")
+    ap.add_argument("--codes", type=str, default=None, help="逗号分隔 6 位或全格式代码")
+    ap.add_argument("--start", type=int, default=0, help="断点续传偏移")
+    ap.add_argument("--status", action="store_true")
+    args = ap.parse_args()
+    if args.status:
+        status()
+        return 0
+    codes = None
+    if args.codes:
+        codes = [c if "." in c else
+                 (c + (".SH" if c.startswith("6") else (".BJ" if c.startswith("8") else ".SZ")))
+                 for c in args.codes.split(",")]
+    return run(codes=codes, start=args.start)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
