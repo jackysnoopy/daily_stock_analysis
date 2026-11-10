@@ -256,12 +256,15 @@ def fill_one(code: str):
         return code, 0, "parse_empty"
     fin_ph = ",".join("?" * len(FIN_COLS))
     q_ph = ",".join("?" * len(Q_COLS))
-    _thread_con(FIN_DB).executemany(
-        f"INSERT OR REPLACE INTO finance_report VALUES ({fin_ph})", fin_rows)
-    _thread_con(FIN_DB).commit()
-    _thread_con(QD_DB).executemany(
-        f"INSERT OR REPLACE INTO quality VALUES ({q_ph})", q_rows)
-    _thread_con(QD_DB).commit()
+    try:
+        _thread_con(FIN_DB).executemany(
+            f"INSERT OR REPLACE INTO finance_report VALUES ({fin_ph})", fin_rows)
+        _thread_con(FIN_DB).commit()
+        _thread_con(QD_DB).executemany(
+            f"INSERT OR REPLACE INTO quality VALUES ({q_ph})", q_rows)
+        _thread_con(QD_DB).commit()
+    except sqlite3.Error as e:
+        return code, 0, f"db_error:{type(e).__name__}"
     return code, len(fin_rows), None
 
 
@@ -292,7 +295,8 @@ def run(codes=None, start=0) -> int:
     n_ok = n_fail = 0
     failed = []
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    with ThreadPoolExecutor(max_workers=N_WORKERS) as ex:
+    ex = ThreadPoolExecutor(max_workers=N_WORKERS)
+    try:
         futs = {ex.submit(fill_one, c): c for c in todo}
         for i, fu in enumerate(as_completed(futs), 1):
             code, n, err = fu.result()
@@ -305,6 +309,13 @@ def run(codes=None, start=0) -> int:
                 el = time.time() - t0
                 print(f"  {i}/{len(todo)} ok={n_ok} fail={n_fail} {el:.0f}s "
                       f"eta={el / i * (len(todo) - i):.0f}s", flush=True)
+    except KeyboardInterrupt:
+        ex.shutdown(wait=False, cancel_futures=True)
+        print("已中止（正在运行的少数请求会自然结束）", flush=True)
+        status()
+        return 130
+    finally:
+        ex.shutdown(wait=True)
     if failed:
         PROGRESS.parent.mkdir(parents=True, exist_ok=True)
         PROGRESS.write_text("\n".join(failed), encoding="utf-8")
@@ -318,18 +329,21 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="新浪三表 → 上游 finance/quality 库")
     ap.add_argument("--init", action="store_true", help="全量补数")
     ap.add_argument("--codes", type=str, default=None, help="逗号分隔 6 位或全格式代码")
-    ap.add_argument("--start", type=int, default=0, help="断点续传偏移")
+    ap.add_argument("--start", type=int, default=None, help="断点续传偏移（续跑全量）")
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args()
     if args.status:
         status()
         return 0
+    if not (args.init or args.codes or args.start is not None):
+        ap.print_help()
+        return 2
     codes = None
     if args.codes:
         codes = [c if "." in c else
                  (c + (".SH" if c.startswith("6") else (".BJ" if c.startswith("8") else ".SZ")))
-                 for c in args.codes.split(",")]
-    return run(codes=codes, start=args.start)
+                 for c in (x.strip() for x in args.codes.split(",")) if c]
+    return run(codes=codes, start=args.start or 0)
 
 
 if __name__ == "__main__":

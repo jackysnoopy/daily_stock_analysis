@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "daily_stock_analysis"))
@@ -132,6 +133,16 @@ class TestSinaParse(unittest.TestCase):
         a, _ = ff.build_rows("000001.SZ", lrb, fzb, llb, period_keys=periods)
         b, _ = ff.build_rows("000001.SZ", lrb2, fzb2, llb2)
         self.assertEqual([r[:2] for r in a], [r[:2] for r in b])
+
+
+class TestMainNoFlags(unittest.TestCase):
+    def test_main_without_flags_prints_usage_and_returns_2(self):
+        # 裸跑不得全量：无 --init/--codes/--start 时打印用法并返回 2，run 不被调用
+        with mock.patch.object(sys, "argv", ["finance_fill"]), \
+                mock.patch.object(ff, "run") as m_run:
+            rc = ff.main()
+        self.assertEqual(rc, 2)
+        m_run.assert_not_called()
 
 
 if __name__ == "__main__":
