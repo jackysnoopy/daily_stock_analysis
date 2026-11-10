@@ -264,6 +264,11 @@ def fill_one(code: str):
             f"INSERT OR REPLACE INTO quality VALUES ({q_ph})", q_rows)
         _thread_con(QD_DB).commit()
     except sqlite3.Error as e:
+        for db in (FIN_DB, QD_DB):
+            try:
+                _thread_con(db).rollback()
+            except sqlite3.Error:
+                pass
         return code, 0, f"db_error:{type(e).__name__}"
     return code, len(fin_rows), None
 
@@ -342,7 +347,10 @@ def main() -> int:
     if args.codes:
         codes = [c if "." in c else
                  (c + (".SH" if c.startswith("6") else (".BJ" if c.startswith("8") else ".SZ")))
-                 for c in (x.strip() for x in args.codes.split(",")) if c]
+                  for c in (x.strip() for x in args.codes.split(",")) if c]
+    if codes is not None and len(codes) == 0:
+        ap.print_help()
+        return 2
     return run(codes=codes, start=args.start or 0)
 
 

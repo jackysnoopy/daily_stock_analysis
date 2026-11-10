@@ -145,5 +145,15 @@ class TestMainNoFlags(unittest.TestCase):
         m_run.assert_not_called()
 
 
+class TestMainEmptyCodes(unittest.TestCase):
+    def test_main_blank_codes_prints_usage_and_returns_2(self):
+        # --codes 全为空白（strip+filter 后 []）不得回退全量：打印用法并返回 2，run 不被调用
+        with mock.patch.object(sys, "argv", ["finance_fill", "--codes", " , "]), \
+                mock.patch.object(ff, "run") as m_run:
+            rc = ff.main()
+        self.assertEqual(rc, 2)
+        m_run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
